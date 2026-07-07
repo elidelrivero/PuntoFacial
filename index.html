@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Asistencia Corporativo</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- face-api.js: reconocimiento facial 100 % en el navegador (sin enviar imágenes al servidor) -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body>
+
+<div class="dashboard">
+    <aside class="sidebar">
+        <div class="logo">
+            <h2><i class="fa-solid fa-clock"></i> TimeCheck</h2>
+        </div>
+        <nav class="menu">
+            <button class="menu-btn active" data-target="sec-asistencia">
+                <i class="fa-solid fa-fingerprint"></i> Registro Asistencia
+            </button>
+            <button class="menu-btn" data-target="sec-empleados">
+                <i class="fa-solid fa-users"></i> Empleados
+            </button>
+            <button class="menu-btn" data-target="sec-permisos">
+                <i class="fa-solid fa-calendar-plus"></i> Permisos e Incapacidades
+            </button>
+            <button class="menu-btn" data-target="sec-reportes">
+                <i class="fa-solid fa-chart-bar"></i> Reportes Diarios
+            </button>
+        </nav>
+    </aside>
+
+    <main class="main-content">
+        <header class="top-header">
+            <h1>Panel de Control</h1>
+            <div class="user-info">
+                <span><i class="fa-solid fa-user-circle"></i> Administrador</span>
+            </div>
+        </header>
+
+        <div class="content-wrapper">
+
+            <!-- ══════════════════════════════════════════════════════
+                 FLUJO 2: REGISTRO DE ASISTENCIA — Verificación 1:1
+                 El empleado ingresa su ID de 7 dígitos y la cámara
+                 verifica que el rostro coincida con ESE ID específico.
+                 ══════════════════════════════════════════════════════ -->
+            <section id="sec-asistencia" class="content-section active">
+                <div class="card text-center">
+                    <h2><i class="fa-solid fa-fingerprint"></i> Control de Acceso</h2>
+                    <p class="text-muted">Ingresa tu ID y verifica tu identidad con reconocimiento facial</p>
+
+                    <div class="clock-display" id="reloj">00:00:00</div>
+
+                    <!-- Paso 1: cuadro de texto con el ID de 7 dígitos -->
+                    <div class="form-container centered-form" style="margin-top: 10px;">
+                        <div class="input-group">
+                            <label for="emp-id">
+                                ID de Empleado
+                                <span style="color:var(--text-muted); font-weight:400;">(7 dígitos)</span>
+                            </label>
+                            <!-- Al presionar Enter también se puede enviar -->
+                            <input type="text"
+                                   id="emp-id"
+                                   placeholder="Ej. 3847291"
+                                   maxlength="7"
+                                   autocomplete="off"
+                                   inputmode="numeric"
+                                   class="input-id-grande"
+                                   onkeydown="if(event.key==='Enter') iniciarVerificacion1a1('Entrada')">
+                        </div>
+
+                        <!-- Paso 2: al hacer clic → se abre el modal con la cámara -->
+                        <div class="action-buttons">
+                            <button class="btn btn-success" onclick="iniciarVerificacion1a1('Entrada')">
+                                <i class="fa-solid fa-sign-in-alt"></i> Registrar Entrada
+                            </button>
+                            <button class="btn btn-danger" onclick="iniciarVerificacion1a1('Salida')">
+                                <i class="fa-solid fa-sign-out-alt"></i> Registrar Salida
+                            </button>
+                        </div>
+
+                        <p id="mensaje-asistencia" class="status-msg" style="margin-top:12px; font-weight:bold;"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════════════════════
+                 FLUJO 1: ALTA DE EMPLEADOS + ENROLAMIENTO
+                 Al guardar el formulario → backend genera ID de 7 dígitos
+                 → frontend redirige automáticamente al modal biométrico.
+                 ══════════════════════════════════════════════════════ -->
+            <section id="sec-empleados" class="content-section">
+                <div class="card">
+                    <h2>Gestión de Empleados</h2>
+                    <div class="grid-2-col">
+
+                        <!-- Formulario de registro -->
+                        <div>
+                            <h3>Registrar Nuevo Empleado</h3>
+                            <form id="form-empleado" class="form-container">
+                                <div class="input-group">
+                                    <label>Nombre Completo</label>
+                                    <input type="text" id="emp-nombre" required>
+                                </div>
+                                <div class="input-group">
+                                    <label>Departamento</label>
+                                    <select id="emp-depto" required>
+                                        <option>Recursos Humanos</option>
+                                        <option>Tecnología</option>
+                                        <option>Ventas</option>
+                                        <option>Operaciones</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fa-solid fa-user-plus"></i> Guardar Empleado
+                                </button>
+                            </form>
+
+                            <!-- Mensaje de confirmación con el ID generado.
+                                 Se muestra 1.5 s y luego abre el modal biométrico. -->
+                            <div id="msg-nuevo-empleado" class="bio-status success" style="display:none; margin-top:15px;"></div>
+                        </div>
+
+                        <!-- Directorio de empleados -->
+                        <div>
+                            <h3>Directorio</h3>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Nombre</th>
+                                        <th>Depto</th>
+                                        <th>Biometría</th>
+                                        <th>Baja</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-directorio"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Permisos e Incapacidades (sin cambios) -->
+            <section id="sec-permisos" class="content-section">
+                <div class="card">
+                    <h2>Registro de Novedades</h2>
+                    <form id="form-novedades" class="form-container w-50">
+                        <div class="input-group">
+                            <label for="nov-empleado">Empleado (ID o Nombre)</label>
+                            <input type="text" id="nov-empleado" placeholder="Ej. Nombre o 3847291" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="nov-tipo">Tipo de Novedad</label>
+                            <select id="nov-tipo" required>
+                                <option value="Permiso Personal">Permiso Personal</option>
+                                <option value="Vacaciones">Vacaciones</option>
+                                <option value="Incapacidad Médica">Incapacidad Médica</option>
+                                <option value="Falta Injustificada">Falta Injustificada</option>
+                            </select>
+                        </div>
+                        <div class="grid-2-col">
+                            <div class="input-group">
+                                <label for="nov-inicio">Fecha Inicio</label>
+                                <input type="date" id="nov-inicio" required>
+                            </div>
+                            <div class="input-group">
+                                <label for="nov-fin">Fecha Fin</label>
+                                <input type="date" id="nov-fin" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Registrar Novedad</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Reportes (sin cambios) -->
+            <section id="sec-reportes" class="content-section">
+                <div class="card">
+                    <div class="header-flex">
+                        <h2>Reporte de Asistencia Diario (Hoy)</h2>
+                        <button class="btn btn-primary">
+                            <i class="fa-solid fa-download"></i> Exportar a Excel
+                        </button>
+                    </div>
+                    <p class="text-muted">Análisis de entradas y salidas basado en el horario del departamento.</p>
+                    <table class="data-table mt-2">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Empleado</th>
+                                <th>Horario Asignado</th>
+                                <th>Entrada</th>
+                                <th>Retraso (Min)</th>
+                                <th>Salida</th>
+                                <th>Dif. Salida (Min)</th>
+                                <th>Puerta</th>
+                                <th>Sucursal</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-reportes"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div>
+    </main>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL BIOMÉTRICO GLOBAL
+     Se abre desde dos puntos:
+       · sec-asistencia → verificación 1:1 (iniciarVerificacion1a1)
+       · sec-empleados  → enrolamiento     (iniciarEnrolamientoEmpleado)
+     ══════════════════════════════════════════════════════════════ -->
+<div id="modal-bio" class="modal-bio-overlay">
+    <div class="modal-bio-panel">
+
+        <!-- Cabecera del modal -->
+        <div class="modal-bio-header">
+            <h2 id="modal-bio-titulo">Verificación Biométrica</h2>
+            <button class="modal-bio-close" onclick="cerrarModalBio()" title="Cancelar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Información del empleado / tipo de operación -->
+        <div class="modal-bio-info" id="modal-bio-info"></div>
+
+        <!-- Vista de cámara + canvas de detección superpuesto -->
+        <div class="modal-bio-cam">
+            <div class="cam-wrapper">
+                <video id="video-bio" autoplay muted playsinline></video>
+                <canvas id="canvas-bio"></canvas>
+                <div class="cam-placeholder" id="cam-placeholder">
+                    <i class="fa-solid fa-camera" style="font-size:2.5rem;"></i>
+                    <p>Iniciando cámara...</p>
+                </div>
+            </div>
+            <!-- Mensajes de estado: scanning / success / error / warning -->
+            <div id="bio-status" class="bio-status"></div>
+        </div>
+
+        <!-- Pie del modal -->
+        <div class="modal-bio-footer">
+            <button class="btn" style="background:#64748b;" onclick="cerrarModalBio()">
+                <i class="fa-solid fa-xmark"></i> Cancelar
+            </button>
+        </div>
+
+        <!-- Overlay de carga de modelos (solo la primera vez) -->
+        <div id="bio-loading-overlay" class="bio-loading-overlay">
+            <div class="bio-loading-content">
+                <i class="fa-solid fa-circle-notch fa-spin"
+                   style="font-size:2.5rem; color:var(--secondary-color);"></i>
+                <p style="font-weight:600; margin-top:8px;">Cargando modelos de IA</p>
+                <small style="color:var(--text-muted);">Primera carga: ~20-40 segundos</small>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL METADATOS DE ACCESO
+     Se abre DESPUÉS de que la verificación facial sea exitosa en Entrada.
+     El empleado selecciona Puerta y Sucursal; al confirmar se guarda
+     la asistencia en la BD junto con esos metadatos.
+     ══════════════════════════════════════════════════════════════ -->
+<div id="modal-metadatos" class="modal-bio-overlay">
+    <div class="modal-bio-panel" style="max-width:480px;">
+
+        <div class="modal-bio-header">
+            <h2><i class="fa-solid fa-map-pin"></i> Datos de Acceso</h2>
+        </div>
+
+        <!-- Resumen del empleado verificado -->
+        <div class="modal-bio-info" id="meta-empleado-info"></div>
+
+        <div class="meta-body">
+
+            <!-- Puerta de ingreso — selección única con radio buttons -->
+            <div class="meta-seccion">
+                <p class="meta-label">
+                    <i class="fa-solid fa-door-open"></i> Puerta de Ingreso
+                    <span class="meta-requerido">*</span>
+                </p>
+                <div class="radio-group" id="grupo-puerta">
+                    <label class="radio-opcion">
+                        <input type="radio" name="puerta" value="Puerta principal">
+                        <span>Puerta principal</span>
+                    </label>
+                    <label class="radio-opcion">
+                        <input type="radio" name="puerta" value="Entrada de personal">
+                        <span>Entrada de personal</span>
+                    </label>
+                    <label class="radio-opcion">
+                        <input type="radio" name="puerta" value="Puerta trasera">
+                        <span>Puerta trasera</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Sede / Sucursal — dropdown -->
+            <div class="meta-seccion">
+                <p class="meta-label">
+                    <i class="fa-solid fa-building"></i> Sede / Sucursal
+                    <span class="meta-requerido">*</span>
+                </p>
+                <select id="sel-sucursal" class="meta-select">
+                    <option value="">-- Selecciona la sede --</option>
+                    <option value="CDMX">CDMX</option>
+                    <option value="Queretaro">Querétaro</option>
+                    <option value="Guadalajara">Guadalajara</option>
+                    <option value="Monterrey">Monterrey</option>
+                </select>
+            </div>
+
+            <p id="meta-error" class="meta-error-msg" style="display:none;"></p>
+        </div>
+
+        <div class="modal-bio-footer" style="justify-content:space-between;">
+            <button class="btn" style="background:#64748b;" onclick="cerrarModalMetadatos()">
+                <i class="fa-solid fa-xmark"></i> Cancelar
+            </button>
+            <button class="btn btn-success" onclick="confirmarAccesoConMetadatos()">
+                <i class="fa-solid fa-check"></i> Confirmar Acceso
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL BAJA DE EMPLEADO
+     Se abre desde el botón "Baja" del directorio.
+     Requiere contraseña administrativa Abd6S para proceder.
+     ══════════════════════════════════════════════════════════════ -->
+<div id="modal-baja" class="modal-bio-overlay">
+    <div class="modal-bio-panel" style="max-width:400px;">
+
+        <div class="modal-bio-header">
+            <h2 style="color:#dc2626;">
+                <i class="fa-solid fa-user-slash"></i> Dar de Baja
+            </h2>
+            <button class="modal-bio-close" onclick="cerrarModalBaja()">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div style="padding:20px 22px;">
+            <!-- Tarjeta de advertencia con los datos del empleado -->
+            <div class="baja-alerta" id="baja-empleado-info"></div>
+
+            <div class="input-group" style="margin-top:16px;">
+                <label for="input-pwd-baja">Contraseña Administrativa</label>
+                <input type="password"
+                       id="input-pwd-baja"
+                       placeholder="Ingresa la contraseña"
+                       onkeydown="if(event.key==='Enter') confirmarBaja()">
+            </div>
+            <p id="baja-error" class="meta-error-msg" style="display:none; margin-top:8px;"></p>
+        </div>
+
+        <div class="modal-bio-footer" style="justify-content:space-between;">
+            <button class="btn" style="background:#64748b;" onclick="cerrarModalBaja()">
+                Cancelar
+            </button>
+            <button class="btn btn-danger" onclick="confirmarBaja()">
+                <i class="fa-solid fa-user-minus"></i> Confirmar Baja
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<script src="script.js"></script>
+<script src="biometria.js"></script>
+</body>
+</html>
