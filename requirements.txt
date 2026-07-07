@@ -3,3 +3,4 @@ flask-cors==6.0.5
 numpy==2.4.2
 PyMySQL==1.2.0
 python-dotenv==1.2.2
+DBUtils==3.1.2

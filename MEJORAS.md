@@ -75,7 +75,7 @@ acceso a la app. Requiere decidir contigo el mecanismo (¿un solo usuario admin 
 
 ## 3. Pool de conexiones a la base de datos
 
-**Estado:** Pendiente
+**Estado:** Implementada (2026-07-06)
 
 **Problema actual:** cada endpoint abre una conexión nueva a MySQL
 (`get_db_connection()`) y la cierra al final. Bajo carga concurrente esto es
@@ -84,10 +84,22 @@ ineficiente y puede agotar conexiones de MySQL.
 **Por qué importa:** con varios empleados marcando asistencia a la vez (ej. hora
 pico de entrada), abrir/cerrar conexión por request agrega latencia y no escala.
 
-**Propuesta:**
-- Usar `DBUtils` (`PooledDB`) sobre PyMySQL para mantener un pool de conexiones
-  reutilizables en vez de abrir una nueva cada vez.
-- Cambio interno en `get_db_connection()`; el resto del código no cambia.
+**Cambios realizados:**
+- Se agregó `DBUtils==3.1.2` a `requirements.txt`.
+- `app.py`: se creó `connection_pool = PooledDB(creator=pymysql, maxconnections=5, **db_config)`
+  a nivel de módulo (se inicializa una sola vez al arrancar la app).
+- `get_db_connection()` ahora devuelve `connection_pool.connection()` en vez de
+  `pymysql.connect(**db_config)`. El resto del código no cambió: cada endpoint
+  sigue llamando `get_db_connection()` y `conn.close()` igual que antes —
+  `PooledDB` intercepta el `close()` y devuelve la conexión al pool en vez de
+  destruirla.
+
+**Verificado:**
+- Script aislado que pide 3 conexiones seguidas del pool y ejecuta consultas
+  reales contra `sistema_asistencia` — funcionó correctamente.
+- Prueba end-to-end: se levantó `app.py` completo y se llamó
+  `GET /api/datos-iniciales`, devolviendo `200 OK` con los datos reales de la
+  base de datos.
 
 **Riesgo de la migración:** bajo. Cambio aislado y fácil de revertir.
 

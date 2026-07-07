@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
+from dbutils.pooled_db import PooledDB
 import pymysql
 import pymysql.cursors
 from datetime import datetime
@@ -32,8 +33,17 @@ db_config = {
 
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
 
+# Pool de conexiones: reutiliza hasta 5 conexiones en vez de abrir una nueva
+# por cada request. get_db_connection() y conn.close() se usan igual en todo
+# el código; PooledDB intercepta el close() y devuelve la conexión al pool.
+connection_pool = PooledDB(
+    creator=pymysql,
+    maxconnections=5,
+    **db_config
+)
+
 def get_db_connection():
-    return pymysql.connect(**db_config)
+    return connection_pool.connection()
 
 # --- ENDPOINT 1: Obtener el reporte de hoy y el directorio ---
 @app.route('/api/datos-iniciales', methods=['GET'])
