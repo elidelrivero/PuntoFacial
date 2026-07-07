@@ -42,7 +42,6 @@ def test_logout_cierra_sesion(auth_client):
     ('post', '/api/asistencia'),
     ('post', '/api/novedades'),
     ('post', '/api/biometria/enrolar'),
-    ('post', '/api/biometria/autenticar'),
     ('post', '/api/biometria/verificar'),
     ('post', '/api/empleados/baja'),
 ])
@@ -50,3 +49,18 @@ def test_endpoints_protegidos_sin_sesion(client, metodo, ruta):
     """Ningún endpoint de la API debe responder sin sesión activa (Mejora 4)."""
     res = getattr(client, metodo)(ruta, json={})
     assert res.status_code == 401
+
+
+def test_login_bloquea_tras_varios_intentos_fallidos(client):
+    """Hallazgo #10: límite de intentos fallidos de login."""
+    for _ in range(5):
+        client.post('/api/login', json={'usuario': 'admin', 'password': 'incorrecta'})
+
+    res = client.post('/api/login', json={'usuario': 'admin', 'password': 'incorrecta'})
+    assert res.status_code == 429
+
+
+def test_no_refleja_origen_arbitrario_en_cors(client):
+    """Hallazgo #6: no debe existir CORS permisivo con credenciales."""
+    res = client.get('/api/session-check', headers={'Origin': 'https://sitio-ajeno.com'})
+    assert 'Access-Control-Allow-Origin' not in res.headers

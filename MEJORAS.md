@@ -252,7 +252,7 @@ código) antes de documentarse.
 
 ## 6. CORS demasiado permisivo con credenciales (regresión de la Mejora 4)
 
-**Estado:** Pendiente — **prioridad alta**
+**Estado:** Implementada (2026-07-07)
 
 **Problema verificado:** `CORS(app, supports_credentials=True)` (agregado en la
 Mejora 4) refleja **cualquier origen** en `Access-Control-Allow-Origin` y
@@ -270,14 +270,20 @@ administrador — y **leer las respuestas** (directorio de empleados, resultados
 de verificación biométrica, etc.), no solo dispararlas a ciegas como en un CSRF
 clásico. Esto reabre buena parte del riesgo que la Mejora 4 buscaba cerrar.
 
-**Propuesta:**
-- Quitar `flask-cors` por completo (no hace falta: mismo origen sirve todo).
-- Si en el futuro se necesita un frontend en otro dominio/puerto, restringir
-  `origins` a una lista explícita de dominios de confianza — nunca reflejar
-  cualquier origen junto con `supports_credentials=True`.
-- Complementar con `app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'` como
-  segunda capa de defensa (bloquea el envío de la cookie de sesión en
-  peticiones cross-site iniciadas por fetch/formularios de otros sitios).
+**Cambios realizados:**
+- Se quitó `flask-cors` por completo de `app.py` y de `requirements.txt`
+  (no hacía falta: frontend y API comparten origen).
+- Se agregó `app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'` como segunda capa
+  de defensa (evita que la cookie de sesión se envíe en peticiones cross-site
+  iniciadas por fetch/formularios de otros sitios).
+
+**Verificado:** se repitió la prueba con `curl -H "Origin:
+https://sitio-malicioso-de-prueba.com"` contra el servidor real — la
+respuesta ya **no** incluye ningún header `Access-Control-Allow-Origin` ni
+`Access-Control-Allow-Credentials`. Se confirmó además, en el navegador, que
+el login y la carga de datos del panel siguen funcionando con normalidad
+(mismo origen no necesita CORS). Nuevo test automatizado:
+`test_no_refleja_origen_arbitrario_en_cors`.
 
 **Riesgo de la migración:** bajo. Quitar CORS no afecta el uso normal, ya que
 frontend y API comparten origen.
@@ -286,7 +292,7 @@ frontend y API comparten origen.
 
 ## 7. Endpoints responden error 500 sin manejar si faltan campos requeridos
 
-**Estado:** Pendiente — **prioridad alta**
+**Estado:** Implementada (2026-07-07)
 
 **Problema verificado:** se probó enviando `POST /api/asistencia` y
 `POST /api/novedades` con cuerpo `{}` (sin campos) estando autenticado. Ambos
@@ -299,11 +305,18 @@ Flask responde con un error 500 genérico (HTML, no JSON) en vez del formato
 toda respuesta) y, si `FLASK_DEBUG` llegara a estar activo, expondría parte
 del código fuente y rutas del sistema en el traceback.
 
-**Propuesta:**
-- En `registrar_asistencia` y `registrar_novedad`, validar la presencia de los
-  campos requeridos (`datos.get(...)`) **antes** de usarlos, devolviendo
-  `400` con un mensaje claro si falta alguno — mismo patrón que ya usan
-  `enrolar_biometria` y `verificar_biometria`.
+**Cambios realizados:**
+- `registrar_asistencia` y `registrar_novedad` ahora usan `datos.get(...)`
+  (nunca acceso directo por clave) y validan explícitamente que los campos
+  requeridos estén presentes **antes** de tocar la base de datos, devolviendo
+  `400` con un mensaje JSON claro si falta alguno.
+- De paso, todos los endpoints que hacían `datos = request.json` (sin
+  protección) pasaron a `datos = request.json or {}`, para que un cuerpo
+  vacío/ausente nunca provoque un `AttributeError`/`TypeError` no manejado.
+
+**Verificado:** nuevos tests `test_asistencia_body_vacio_responde_400_no_500`
+y `test_novedades_body_vacio_responde_400_no_500` confirman `400` (antes
+daban `500`).
 
 **Riesgo de la migración:** muy bajo. Solo agrega validación, no cambia el
 comportamiento en el camino feliz (que ya está cubierto por los tests actuales).
@@ -312,7 +325,7 @@ comportamiento en el camino feliz (que ya está cubierto por los tests actuales)
 
 ## 8. Coincidencia ambigua de empleado por nombre parcial en `/api/novedades`
 
-**Estado:** Pendiente — **prioridad media**
+**Estado:** Implementada (2026-07-07)
 
 **Problema verificado:** la búsqueda usa
 `WHERE codigo_empleado = %s OR nombre_completo LIKE %s` con `%input%`, y
@@ -327,28 +340,40 @@ empleado equivocado, silenciosamente.
 asignarla al empleado incorrecto sin ningún aviso es un error de datos serio
 y difícil de detectar después.
 
-**Propuesta:**
-- Si el texto ingresado no es exactamente el `codigo_empleado`, exigir
-  coincidencia exacta de `nombre_completo` (no `LIKE`), o
-- Si hay más de una coincidencia parcial, responder pidiendo que se
-  especifique con el ID en vez de adivinar.
+**Cambios realizados:** `registrar_novedad` ahora busca en este orden:
+1. Coincidencia exacta por `codigo_empleado` o `nombre_completo`.
+2. Si no hay coincidencia exacta, busca por nombre parcial (`LIKE`) — pero
+   solo la acepta si es **inequívoca** (exactamente un resultado).
+3. Si el nombre parcial coincide con más de un empleado, responde `400` con
+   los nombres encontrados, pidiendo especificar con el ID — nunca adivina.
 
-**Riesgo de la migración:** bajo. Podría requerir ajuste menor en el frontend
-si se opta por devolver una lista de candidatos.
+**Verificado:** nuevo test `test_novedad_nombre_ambiguo_pide_especificar_id`
+reproduce el caso "Ana Torres" / "Mariana Lopez" buscando "Ana" — ahora
+responde `400` en vez de registrar la novedad al empleado equivocado.
+`test_novedad_nombre_exacto_no_es_ambiguo` confirma que un nombre completo
+exacto sigue funcionando sin fricción aunque sea substring de otro nombre.
+
+**Riesgo de la migración:** bajo. No requirió cambios en el frontend porque
+el formulario de novedades ya invita a usar el ID cuando el nombre no basta.
 
 ---
 
 ## 9. `depto` inválido en `/api/empleados` se asigna silenciosamente a RR.HH.
 
-**Estado:** Pendiente — **prioridad baja**
+**Estado:** Implementada (2026-07-07)
 
 **Problema:** `deptos.get(datos['depto'], 1)` — si `depto` no coincide con
 ninguna de las 4 opciones esperadas (ej. error de tipeo desde una integración
-externa a la API), el empleado queda asignado a "Recursos Humanos" sin ningún
-error ni aviso.
+externa a la API), el empleado quedaba asignado a "Recursos Humanos" sin
+ningún error ni aviso.
 
-**Propuesta:** validar que `depto` esté en la lista conocida y devolver `400`
-si no, en vez de usar un valor por defecto silencioso.
+**Cambios realizados:** `registrar_empleado` ahora valida `nombre` (no vacío)
+y `depto` (debe ser una de las 4 opciones conocidas) **antes** de generar el
+ID o tocar la base de datos, devolviendo `400` con un mensaje claro si algo
+falta o es inválido.
+
+**Verificado:** nuevos tests `test_registrar_empleado_depto_invalido` y
+`test_registrar_empleado_sin_nombre`.
 
 **Riesgo de la migración:** muy bajo.
 
@@ -356,20 +381,21 @@ si no, en vez de usar un valor por defecto silencioso.
 
 ## 10. Limpieza menor (bajo impacto)
 
-**Estado:** Pendiente — **prioridad baja**
+**Estado:** Implementada (2026-07-07)
 
-- **`/api/biometria/autenticar` (1:N) parece código muerto**: no se encontró
-  ninguna llamada a este endpoint desde `script.js` ni `biometria.js` — el
-  frontend solo usa `/biometria/verificar` (1:1). Se sugiere eliminarlo o
-  documentar para qué se conserva.
-- **Comparación de contraseñas no es de tiempo constante**: `ADMIN_PASSWORD` y
-  `LOGIN_PASSWORD` se comparan con `==`/`!=` en vez de `hmac.compare_digest`.
-  Endurecimiento típico contra timing attacks; impacto práctico bajo en este
-  contexto (app local), pero es una buena práctica de bajo costo.
-- **Sin límite de intentos en `/api/login` ni en la baja de empleados**: no
-  hay bloqueo tras varios intentos fallidos. Razonable para un proyecto
-  universitario/local; a considerar si el sistema llegara a exponerse en una
-  red compartida.
+- **`/api/biometria/autenticar` (1:N) era código muerto** — confirmado que no
+  había ninguna llamada desde `script.js` ni `biometria.js`. Se eliminó el
+  endpoint completo de `app.py` (y su test correspondiente).
+- **Comparación de contraseñas ahora es de tiempo constante**: `LOGIN_USER`,
+  `LOGIN_PASSWORD` (en `/api/login`) y `ADMIN_PASSWORD` (en la baja de
+  empleados) se comparan con `hmac.compare_digest` en vez de `==`/`!=`.
+- **Límite de intentos fallidos en `/api/login`**: se agregó un contador en
+  memoria que bloquea el login (`429`) tras 5 intentos fallidos en una
+  ventana de 5 minutos, y se reinicia al iniciar sesión correctamente.
+  Verificado con el nuevo test `test_login_bloquea_tras_varios_intentos_fallidos`.
+  (No se agregó límite a la baja de empleados — esa acción ya requiere sesión
+  de administrador activa, por lo que el riesgo de fuerza bruta anónima ya
+  estaba cerrado por la Mejora 4.)
 
 ---
 

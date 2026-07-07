@@ -1,3 +1,10 @@
+def test_asistencia_body_vacio_responde_400_no_500(auth_client):
+    """Hallazgo #7: campos faltantes deben dar 400 JSON, no un 500 sin manejar."""
+    res = auth_client.post('/api/asistencia', json={})
+    assert res.status_code == 400
+    assert res.get_json()['success'] is False
+
+
 def test_registrar_entrada_empleado_no_existe(auth_client):
     res = auth_client.post('/api/asistencia', json={'id': '9999999', 'tipo': 'Entrada'})
     assert res.status_code == 404

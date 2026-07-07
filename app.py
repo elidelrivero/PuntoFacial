@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify, send_from_directory, session
-from flask_cors import CORS
 from dotenv import load_dotenv
 from dbutils.pooled_db import PooledDB
 from functools import wraps
+from time import time
+import hmac
 import pymysql
 import pymysql.cursors
 from datetime import datetime
@@ -15,10 +16,14 @@ load_dotenv()
 
 # Flask sirve el frontend completo desde la misma carpeta del proyecto.
 # Accede por http://localhost:5000 en lugar de abrir index.html como archivo.
+# Frontend y API comparten el mismo origen — no se necesita CORS entre sitios,
+# y habilitarlo junto con cookies de sesión sería un riesgo (ver MEJORAS.md #6).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path='')
 app.secret_key = os.environ['SECRET_KEY']
-CORS(app, supports_credentials=True)
+# Defensa adicional: evita que la cookie de sesión se envíe en peticiones
+# cross-site iniciadas por otros sitios (fetch/formularios).
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 @app.route('/')
 def index():
@@ -51,12 +56,30 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorada
 
+# Límite simple de intentos fallidos de login (en memoria — un solo admin,
+# un solo proceso). No sustituye un sistema de cuentas real, pero evita
+# fuerza bruta trivial contra la contraseña.
+MAX_INTENTOS_LOGIN    = 5
+VENTANA_INTENTOS_SEG  = 300
+_intentos_fallidos_login = []
+
 @app.route('/api/login', methods=['POST'])
 def login():
+    ahora = time()
+    _intentos_fallidos_login[:] = [t for t in _intentos_fallidos_login if ahora - t < VENTANA_INTENTOS_SEG]
+    if len(_intentos_fallidos_login) >= MAX_INTENTOS_LOGIN:
+        return jsonify({'success': False, 'mensaje': 'Demasiados intentos fallidos. Intenta de nuevo en unos minutos.'}), 429
+
     datos = request.json or {}
-    if datos.get('usuario') == LOGIN_USER and datos.get('password') == LOGIN_PASSWORD:
+    usuario_ok  = hmac.compare_digest(str(datos.get('usuario', '')), LOGIN_USER)
+    password_ok = hmac.compare_digest(str(datos.get('password', '')), LOGIN_PASSWORD)
+
+    if usuario_ok and password_ok:
+        _intentos_fallidos_login.clear()
         session['autenticado'] = True
         return jsonify({'success': True})
+
+    _intentos_fallidos_login.append(ahora)
     return jsonify({'success': False, 'mensaje': 'Usuario o contraseña incorrectos.'}), 401
 
 @app.route('/api/logout', methods=['POST'])
@@ -131,10 +154,17 @@ def obtener_datos():
 @app.route('/api/empleados', methods=['POST'])
 @login_required
 def registrar_empleado():
-    datos = request.json
+    datos  = request.json or {}
+    nombre = (datos.get('nombre') or '').strip()
+    depto  = datos.get('depto')
+
+    deptos = {"Recursos Humanos": 1, "Tecnología": 2, "Ventas": 3, "Operaciones": 4}
+    if not nombre or depto not in deptos:
+        return jsonify({'success': False, 'error': f"Nombre requerido y depto debe ser uno de: {', '.join(deptos)}."}), 400
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     try:
         # Generar ID único aleatorio de exactamente 7 dígitos (1000000-9999999)
         while True:
@@ -143,15 +173,14 @@ def registrar_empleado():
             if not cursor.fetchone():
                 break  # ID confirmado como único
 
-        deptos = {"Recursos Humanos": 1, "Tecnología": 2, "Ventas": 3, "Operaciones": 4}
-        depto_id = deptos.get(datos['depto'], 1)
+        depto_id = deptos[depto]
 
         cursor.execute(
             "INSERT INTO empleados (codigo_empleado, nombre_completo, departamento_id) VALUES (%s, %s, %s)",
-            (nuevo_codigo, datos['nombre'], depto_id)
+            (nuevo_codigo, nombre, depto_id)
         )
         conn.commit()
-        return jsonify({'success': True, 'nuevo_id': nuevo_codigo, 'nombre': datos['nombre']}), 201
+        return jsonify({'success': True, 'nuevo_id': nuevo_codigo, 'nombre': nombre}), 201
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     finally:
@@ -162,9 +191,13 @@ def registrar_empleado():
 @app.route('/api/asistencia', methods=['POST'])
 @login_required
 def registrar_asistencia():
-    datos      = request.json
-    codigo_emp = datos['id']
-    tipo       = datos['tipo']
+    datos      = request.json or {}
+    codigo_emp = datos.get('id')
+    tipo       = datos.get('tipo')
+
+    if not codigo_emp or tipo not in ('Entrada', 'Salida'):
+        return jsonify({'success': False, 'mensaje': "Faltan campos requeridos: 'id' y 'tipo' ('Entrada' o 'Salida')."}), 400
+
     # Metadatos de acceso (solo para Entrada; Salida los ignora)
     puerta   = datos.get('puerta',   None)
     sucursal = datos.get('sucursal', None)
@@ -231,23 +264,44 @@ def registrar_asistencia():
 @app.route('/api/novedades', methods=['POST'])
 @login_required
 def registrar_novedad():
-    datos = request.json
-    empleado_input = datos['empleado'] # Puede ser el ID (003) o el Nombre (Samuel)
-    tipo = datos['tipo']
-    fecha_inicio = datos['fecha_inicio']
-    fecha_fin = datos['fecha_fin']
+    datos = request.json or {}
+    empleado_input = datos.get('empleado')  # Puede ser el ID (003) o el Nombre (Samuel)
+    tipo           = datos.get('tipo')
+    fecha_inicio   = datos.get('fecha_inicio')
+    fecha_fin      = datos.get('fecha_fin')
+
+    if not all([empleado_input, tipo, fecha_inicio, fecha_fin]):
+        return jsonify({'success': False, 'mensaje': 'Faltan campos requeridos: empleado, tipo, fecha_inicio y fecha_fin.'}), 400
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        # 1. Buscar al empleado por su código o por su nombre completo
+        # 1. Buscar primero coincidencia exacta (código o nombre completo)
         cursor.execute("""
-            SELECT id, nombre_completo FROM empleados 
-            WHERE codigo_empleado = %s OR nombre_completo LIKE %s
-        """, (empleado_input, f"%{empleado_input}%"))
-        
+            SELECT id, nombre_completo FROM empleados
+            WHERE codigo_empleado = %s OR nombre_completo = %s
+        """, (empleado_input, empleado_input))
         empleado = cursor.fetchone()
+
+        # 2. Si no hubo coincidencia exacta, buscar por nombre parcial —
+        #    pero solo se acepta si es INEQUÍVOCA (un único resultado).
+        #    Evita asignar la novedad al empleado equivocado cuando varios
+        #    nombres comparten una misma subcadena (ej. "Ana" / "Mariana").
+        if not empleado:
+            cursor.execute("""
+                SELECT id, nombre_completo FROM empleados WHERE nombre_completo LIKE %s
+            """, (f"%{empleado_input}%",))
+            candidatos = cursor.fetchall()
+
+            if len(candidatos) == 1:
+                empleado = candidatos[0]
+            elif len(candidatos) > 1:
+                nombres = ', '.join(c['nombre_completo'] for c in candidatos)
+                return jsonify({
+                    'success': False,
+                    'mensaje': f'"{empleado_input}" coincide con varios empleados ({nombres}). Especifica con el ID.'
+                }), 400
 
         if not empleado:
             return jsonify({'success': False, 'mensaje': 'Empleado no encontrado. Verifique el ID o Nombre.'}), 404
@@ -282,7 +336,7 @@ def registrar_novedad():
 @app.route('/api/biometria/enrolar', methods=['POST'])
 @login_required
 def enrolar_biometria():
-    datos = request.json
+    datos = request.json or {}
     codigo_empleado = datos.get('codigo_empleado')
 
     # ✅ PRIVACIDAD: Se recibe únicamente el vector numérico.
@@ -328,76 +382,15 @@ def enrolar_biometria():
         conn.close()
 
 
-@app.route('/api/biometria/autenticar', methods=['POST'])
-@login_required
-def autenticar_biometria():
-    datos = request.json
-
-    # ✅ PRIVACIDAD: Solo se recibe el vector del frame actual — NUNCA la imagen
-    embedding_nuevo = np.array(datos.get('face_embedding'), dtype=np.float64)
-
-    # Umbral de distancia euclidiana calibrado para face-api.js faceRecognitionNet:
-    # distancia < 0.45 equivale aproximadamente a ≥90 % de confianza
-    UMBRAL_DISTANCIA = 0.45
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT b.empleado_id, b.face_embedding,
-                   e.nombre_completo, e.codigo_empleado
-            FROM biometria_facial b
-            JOIN empleados e ON b.empleado_id = e.id
-            WHERE b.activo = TRUE
-        """)
-        registros = cursor.fetchall()
-
-        if not registros:
-            return jsonify({'autenticado': False, 'mensaje': 'No hay empleados enrolados con biometría'}), 200
-
-        mejor_match   = None
-        menor_distancia = float('inf')
-
-        for reg in registros:
-            # ✅ Comparación matemática entre vectores — sin procesar imágenes
-            embedding_db = np.array(json.loads(reg['face_embedding']), dtype=np.float64)
-            # Distancia euclidiana entre los dos vectores de 128 dimensiones
-            distancia = float(np.linalg.norm(embedding_nuevo - embedding_db))
-
-            if distancia < menor_distancia:
-                menor_distancia = distancia
-                mejor_match = reg
-
-        if menor_distancia <= UMBRAL_DISTANCIA:
-            # Escalar la distancia a un porcentaje de confianza legible
-            confianza = round(max(0.0, (1.0 - menor_distancia / 1.5)) * 100, 1)
-            return jsonify({
-                'autenticado':      True,
-                'codigo_empleado':  mejor_match['codigo_empleado'],
-                'nombre':           mejor_match['nombre_completo'],
-                'confianza':        confianza,
-                'distancia':        round(menor_distancia, 4)
-            })
-        else:
-            return jsonify({'autenticado': False, 'mensaje': 'Rostro no reconocido. Intenta de nuevo.'})
-
-    except Exception as e:
-        print("Error en autenticación biométrica:", e)
-        return jsonify({'autenticado': False, 'mensaje': 'Error interno del servidor'}), 500
-    finally:
-        cursor.close()
-        conn.close()
-
-
 # --- ENDPOINT: Baja de Empleado (requiere contraseña administrativa) ---
 @app.route('/api/empleados/baja', methods=['POST'])
 @login_required
 def dar_baja_empleado():
-    datos           = request.json
+    datos           = request.json or {}
     codigo_empleado = datos.get('codigo_empleado')
     password        = datos.get('password', '')
 
-    if password != ADMIN_PASSWORD:
+    if not hmac.compare_digest(str(password), ADMIN_PASSWORD):
         return jsonify({'success': False, 'mensaje': 'Contraseña incorrecta. Acción denegada.'}), 403
 
     conn   = get_db_connection()
@@ -434,7 +427,7 @@ def verificar_biometria():
     Busca ÚNICAMENTE el vector del empleado con ese ID específico y compara.
     Si el ID no existe o el rostro no coincide → acceso denegado.
     """
-    datos = request.json
+    datos = request.json or {}
     codigo_empleado = datos.get('codigo_empleado')
 
     # ✅ PRIVACIDAD: Solo se recibe el vector del frame — NUNCA la imagen

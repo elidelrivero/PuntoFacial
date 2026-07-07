@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv(PROJECT_ROOT / '.env')  # completa DB_HOST/DB_USER/... (no pisa DB_NAME)
 
-from app import app as flask_app, db_config  # noqa: E402 (import intencional tras fijar DB_NAME)
+from app import app as flask_app, db_config, _intentos_fallidos_login  # noqa: E402 (import intencional tras fijar DB_NAME)
 
 SCHEMA_SQL = """
 CREATE DATABASE IF NOT EXISTS sistema_asistencia_test;
@@ -125,6 +125,13 @@ def limpiar_datos():
         conn.commit()
     finally:
         conn.close()
+
+
+@pytest.fixture(autouse=True)
+def reset_intentos_login():
+    """Evita que el límite de intentos de login (estado global en app.py)
+    contamine pruebas posteriores — cada prueba empieza con el contador limpio."""
+    _intentos_fallidos_login.clear()
     yield
 
 

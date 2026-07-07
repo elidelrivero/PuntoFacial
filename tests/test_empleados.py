@@ -11,6 +11,18 @@ def test_registrar_empleado_genera_id_7_digitos(auth_client):
     assert data['nuevo_id'].isdigit()
 
 
+def test_registrar_empleado_depto_invalido(auth_client):
+    """Hallazgo #9: depto inválido debe rechazarse, no asignarse a RR.HH. en silencio."""
+    res = auth_client.post('/api/empleados', json={'nombre': 'Empleado Depto Malo', 'depto': 'Marketing'})
+    assert res.status_code == 400
+    assert res.get_json()['success'] is False
+
+
+def test_registrar_empleado_sin_nombre(auth_client):
+    res = auth_client.post('/api/empleados', json={'nombre': '', 'depto': 'Ventas'})
+    assert res.status_code == 400
+
+
 def test_dar_baja_password_incorrecta(auth_client):
     alta   = auth_client.post('/api/empleados', json={'nombre': 'Empleado Baja', 'depto': 'Ventas'})
     codigo = alta.get_json()['nuevo_id']
