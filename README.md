@@ -231,10 +231,19 @@ El panel está protegido con usuario y contraseña (definidos en tu `.env` como 
 ├── biometria.js                # Reconocimiento facial (face-api.js)
 ├── style.css                   # Estilos visuales del panel
 ├── requirements.txt            # Librerías Python necesarias
+├── requirements-dev.txt         # + pytest, solo para desarrollo
+├── pytest.ini                   # Configuración de pytest
 ├── .env.example                 # Plantilla de configuración (copiar como .env)
 ├── MEJORAS.md                   # Registro de mejoras propuestas e implementadas
 ├── asistencia_db.sql           # Esquema original de la base de datos
 ├── biometria.sql               # Migración de la tabla biométrica
+├── tests/                       # Pruebas automatizadas (pytest)
+│   ├── conftest.py              # Crea/limpia sistema_asistencia_test
+│   ├── test_auth.py
+│   ├── test_empleados.py
+│   ├── test_asistencia.py
+│   ├── test_novedades.py
+│   └── test_biometria.py
 ├── Dump20260622/
 │   └── restore_completo.sql   # ✅ ARCHIVO ÚNICO para restaurar todo
 └── models/                     # Modelos de IA para reconocimiento facial
@@ -242,6 +251,28 @@ El panel está protegido con usuario y contraseña (definidos en tu `.env` como 
     ├── face_landmark_68_model-*
     └── face_recognition_model-*
 ```
+
+---
+
+## Cómo correr las pruebas automatizadas
+
+Las pruebas usan una base de datos separada (`sistema_asistencia_test`) que se crea y se limpia sola — **nunca tocan tus datos reales**.
+
+1. Instala las dependencias de desarrollo (incluye las normales + `pytest`):
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+2. Asegúrate de tener tu `.env` configurado (mismo que usas para correr la app) y MySQL corriendo.
+
+3. Ejecuta las pruebas desde la carpeta del proyecto:
+
+```bash
+pytest
+```
+
+Deberías ver algo como `29 passed`. Las pruebas cubren: login/logout y que todos los endpoints estén protegidos sin sesión, registro y baja de empleados, registro de entrada/salida, permisos/novedades, y verificación biométrica 1:1 (incluyendo casos de coincidencia y no coincidencia).
 
 ---
 

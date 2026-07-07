@@ -164,7 +164,7 @@ se interpreta correctamente como `True` al cargar con `python-dotenv`.
 
 ## 5. Tests automatizados
 
-**Estado:** Pendiente
+**Estado:** Implementada (2026-07-07) — estrategia elegida: **base de datos de prueba real**
 
 **Problema actual:** no existe ninguna prueba automatizada. Cualquier cambio (como
 las mejoras 1–4) se valida solo probando manualmente en el navegador.
@@ -172,15 +172,38 @@ las mejoras 1–4) se valida solo probando manualmente en el navegador.
 **Por qué importa:** sin tests, cada mejora futura arriesga romper algo sin que nos
 demos cuenta hasta probarlo a mano.
 
-**Propuesta:**
-- Añadir `pytest` + `pytest-mock` (o una base de datos SQLite/MySQL de prueba) y
-  crear pruebas para los endpoints críticos: registrar empleado, registrar
-  asistencia (entrada/salida), verificación biométrica 1:1, baja de empleado.
+**Cambios realizados:**
+- `requirements-dev.txt`: incluye `requirements.txt` + `pytest==8.3.4` (dependencia
+  solo de desarrollo, no se instala en producción).
+- `pytest.ini`: configura `testpaths = tests`.
+- `tests/conftest.py`:
+  - Fija `DB_NAME=sistema_asistencia_test` **antes** de importar `app.py`, para que
+    el pool de conexiones se inicialice apuntando a la base de prueba, nunca a la real.
+  - Fixture de sesión que crea `sistema_asistencia_test` con el mismo esquema que
+    producción (5 tablas) y siembra los 4 departamentos.
+  - Fixture que limpia (`TRUNCATE`) las tablas dependientes antes de cada prueba.
+  - Fixtures `client` (cliente de pruebas de Flask) y `auth_client` (mismo cliente,
+    ya autenticado vía `/api/login`) para no repetir el login en cada test.
+- `tests/test_auth.py` — login correcto/incorrecto, session-check, logout, y que
+  los 8 endpoints de la API respondan `401` sin sesión (protege la Mejora 4).
+- `tests/test_empleados.py` — alta genera ID de 7 dígitos, baja con contraseña
+  correcta/incorrecta, baja de empleado inexistente.
+- `tests/test_asistencia.py` — entrada/salida exitosas, salida sin entrada previa
+  (error esperado), entrada duplicada el mismo día.
+- `tests/test_novedades.py` — registro por ID, por nombre, y empleado inexistente.
+- `tests/test_biometria.py` — vector inválido (no 128 dimensiones), verificación 1:1
+  con el mismo vector (coincide, distancia 0), con vector distinto (no coincide),
+  e ID sin biometría registrada.
+- README: nueva sección "Cómo correr las pruebas automatizadas".
+- `.gitignore`: se agregó `.pytest_cache/`.
 
-**Riesgo de la migración:** bajo, es código nuevo que no toca el existente. Depende
-de que decidamos la estrategia de base de datos de prueba.
+**Verificado:** `pytest` ejecutado contra MySQL real — **29 passed**. Se confirmó
+además que la base de datos real (`sistema_asistencia`, con los 12 empleados
+reales) permaneció intacta durante toda la corrida; las pruebas solo leen y
+escriben en `sistema_asistencia_test`.
 
----
+**Riesgo de la migración:** bajo, ya implementado y probado. Código nuevo que no
+modifica los endpoints existentes.
 
 ---
 
@@ -218,10 +241,13 @@ un commit independiente a este repositorio.
 
 ---
 
-## Orden sugerido de implementación
+## Orden de implementación
 
-1. Credenciales fuera del código (rápido, bajo riesgo, habilita el resto)
-2. Desactivar debug en producción (rápido, bajo riesgo)
-3. Pool de conexiones (aislado, bajo riesgo)
-4. Autenticación del panel (mayor alcance, requiere decisiones contigo)
-5. Tests automatizados (se benefician de que 1-4 ya estén hechos)
+1. ✅ Credenciales fuera del código
+2. ✅ Desactivar debug en producción
+3. ✅ Pool de conexiones
+4. ✅ Autenticación del panel
+5. ✅ Tests automatizados
+
+Las 5 mejoras propuestas están implementadas, probadas y publicadas en
+[github.com/elidelrivero/PuntoFacial](https://github.com/elidelrivero/PuntoFacial).
