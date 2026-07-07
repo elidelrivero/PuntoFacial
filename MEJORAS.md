@@ -241,6 +241,138 @@ un commit independiente a este repositorio.
 
 ---
 
+# Segunda revisión (2026-07-07)
+
+Con las 5 mejoras anteriores ya en producción, se hizo una revisión completa
+del proyecto para buscar nuevos problemas. Los hallazgos siguientes fueron
+**verificados de forma concreta** (con pruebas reales, no solo lectura de
+código) antes de documentarse.
+
+---
+
+## 6. CORS demasiado permisivo con credenciales (regresión de la Mejora 4)
+
+**Estado:** Pendiente — **prioridad alta**
+
+**Problema verificado:** `CORS(app, supports_credentials=True)` (agregado en la
+Mejora 4) refleja **cualquier origen** en `Access-Control-Allow-Origin` y
+declara `Access-Control-Allow-Credentials: true`. Se probó enviando
+`Origin: https://sitio-malicioso-de-prueba.com` contra el servidor real y
+respondió aceptándolo.
+
+**Por qué importa:** el frontend se sirve desde el mismo origen que la API
+(`http://localhost:5000` para ambos) — **no se necesita CORS entre sitios para
+que la app funcione**. Tal como está configurado ahora mismo, si un
+administrador con sesión iniciada visita cualquier otra página web, esa página
+podría, desde su propio JavaScript, hacer peticiones `fetch(..., {credentials:
+'include'})` contra la API de TimeCheck usando la cookie de sesión del
+administrador — y **leer las respuestas** (directorio de empleados, resultados
+de verificación biométrica, etc.), no solo dispararlas a ciegas como en un CSRF
+clásico. Esto reabre buena parte del riesgo que la Mejora 4 buscaba cerrar.
+
+**Propuesta:**
+- Quitar `flask-cors` por completo (no hace falta: mismo origen sirve todo).
+- Si en el futuro se necesita un frontend en otro dominio/puerto, restringir
+  `origins` a una lista explícita de dominios de confianza — nunca reflejar
+  cualquier origen junto con `supports_credentials=True`.
+- Complementar con `app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'` como
+  segunda capa de defensa (bloquea el envío de la cookie de sesión en
+  peticiones cross-site iniciadas por fetch/formularios de otros sitios).
+
+**Riesgo de la migración:** bajo. Quitar CORS no afecta el uso normal, ya que
+frontend y API comparten origen.
+
+---
+
+## 7. Endpoints responden error 500 sin manejar si faltan campos requeridos
+
+**Estado:** Pendiente — **prioridad alta**
+
+**Problema verificado:** se probó enviando `POST /api/asistencia` y
+`POST /api/novedades` con cuerpo `{}` (sin campos) estando autenticado. Ambos
+casos lanzan un `KeyError` no controlado (`datos['id']`, `datos['empleado']`,
+etc.) que ocurre **fuera** de los bloques `try/except` existentes, así que
+Flask responde con un error 500 genérico (HTML, no JSON) en vez del formato
+`{'success': False, 'mensaje': ...}` que usa el resto de la API.
+
+**Por qué importa:** rompe el contrato de la API (el frontend espera JSON en
+toda respuesta) y, si `FLASK_DEBUG` llegara a estar activo, expondría parte
+del código fuente y rutas del sistema en el traceback.
+
+**Propuesta:**
+- En `registrar_asistencia` y `registrar_novedad`, validar la presencia de los
+  campos requeridos (`datos.get(...)`) **antes** de usarlos, devolviendo
+  `400` con un mensaje claro si falta alguno — mismo patrón que ya usan
+  `enrolar_biometria` y `verificar_biometria`.
+
+**Riesgo de la migración:** muy bajo. Solo agrega validación, no cambia el
+comportamiento en el camino feliz (que ya está cubierto por los tests actuales).
+
+---
+
+## 8. Coincidencia ambigua de empleado por nombre parcial en `/api/novedades`
+
+**Estado:** Pendiente — **prioridad media**
+
+**Problema verificado:** la búsqueda usa
+`WHERE codigo_empleado = %s OR nombre_completo LIKE %s` con `%input%`, y
+`fetchone()` toma el primer resultado sin más criterio. Se probó registrando
+"Ana Torres" y "Mariana Lopez" y buscando por "Ana" — coincide con ambos
+(MySQL con collation *_ai_ci ignora acentos/mayúsculas, y "Ana" es substring de
+"Mariana" también). En esta prueba tomó el correcto por casualidad de orden,
+pero no hay garantía: con datos distintos podría registrar la novedad al
+empleado equivocado, silenciosamente.
+
+**Por qué importa:** es una acción de RR.HH. (vacaciones/incapacidades) —
+asignarla al empleado incorrecto sin ningún aviso es un error de datos serio
+y difícil de detectar después.
+
+**Propuesta:**
+- Si el texto ingresado no es exactamente el `codigo_empleado`, exigir
+  coincidencia exacta de `nombre_completo` (no `LIKE`), o
+- Si hay más de una coincidencia parcial, responder pidiendo que se
+  especifique con el ID en vez de adivinar.
+
+**Riesgo de la migración:** bajo. Podría requerir ajuste menor en el frontend
+si se opta por devolver una lista de candidatos.
+
+---
+
+## 9. `depto` inválido en `/api/empleados` se asigna silenciosamente a RR.HH.
+
+**Estado:** Pendiente — **prioridad baja**
+
+**Problema:** `deptos.get(datos['depto'], 1)` — si `depto` no coincide con
+ninguna de las 4 opciones esperadas (ej. error de tipeo desde una integración
+externa a la API), el empleado queda asignado a "Recursos Humanos" sin ningún
+error ni aviso.
+
+**Propuesta:** validar que `depto` esté en la lista conocida y devolver `400`
+si no, en vez de usar un valor por defecto silencioso.
+
+**Riesgo de la migración:** muy bajo.
+
+---
+
+## 10. Limpieza menor (bajo impacto)
+
+**Estado:** Pendiente — **prioridad baja**
+
+- **`/api/biometria/autenticar` (1:N) parece código muerto**: no se encontró
+  ninguna llamada a este endpoint desde `script.js` ni `biometria.js` — el
+  frontend solo usa `/biometria/verificar` (1:1). Se sugiere eliminarlo o
+  documentar para qué se conserva.
+- **Comparación de contraseñas no es de tiempo constante**: `ADMIN_PASSWORD` y
+  `LOGIN_PASSWORD` se comparan con `==`/`!=` en vez de `hmac.compare_digest`.
+  Endurecimiento típico contra timing attacks; impacto práctico bajo en este
+  contexto (app local), pero es una buena práctica de bajo costo.
+- **Sin límite de intentos en `/api/login` ni en la baja de empleados**: no
+  hay bloqueo tras varios intentos fallidos. Razonable para un proyecto
+  universitario/local; a considerar si el sistema llegara a exponerse en una
+  red compartida.
+
+---
+
 ## Orden de implementación
 
 1. ✅ Credenciales fuera del código
