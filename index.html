@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<div class="dashboard">
+<div class="dashboard" id="dashboard-main" style="display:none;">
     <aside class="sidebar">
         <div class="logo">
             <h2><i class="fa-solid fa-clock"></i> TimeCheck</h2>
@@ -37,6 +37,9 @@
             <h1>Panel de Control</h1>
             <div class="user-info">
                 <span><i class="fa-solid fa-user-circle"></i> Administrador</span>
+                <button class="btn btn-small" style="margin-left:12px; background:var(--text-muted);" onclick="cerrarSesion()">
+                    <i class="fa-solid fa-right-from-bracket"></i> Cerrar sesión
+                </button>
             </div>
         </header>
 
@@ -379,6 +382,37 @@
     </div>
 </div>
 
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL DE LOGIN
+     Bloquea el panel completo hasta que se inicie sesión.
+     Visible por defecto; script.js lo oculta si ya hay sesión activa.
+     ══════════════════════════════════════════════════════════════ -->
+<div id="modal-login" class="modal-bio-overlay" style="display:flex; z-index:2000;">
+    <div class="modal-bio-panel" style="max-width:380px;">
+
+        <div class="modal-bio-header">
+            <h2><i class="fa-solid fa-lock"></i> Iniciar Sesión</h2>
+        </div>
+
+        <div style="padding:24px 22px;">
+            <form id="form-login">
+                <div class="input-group">
+                    <label for="login-usuario">Usuario</label>
+                    <input type="text" id="login-usuario" autocomplete="username" required>
+                </div>
+                <div class="input-group" style="margin-top:14px;">
+                    <label for="login-password">Contraseña</label>
+                    <input type="password" id="login-password" autocomplete="current-password" required>
+                </div>
+                <p id="login-error" class="meta-error-msg" style="display:none; margin-top:8px;"></p>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:16px; justify-content:center;">
+                    <i class="fa-solid fa-right-to-bracket"></i> Entrar
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
 
 <script src="script.js"></script>
 <script src="biometria.js"></script>

@@ -51,7 +51,7 @@ públicas.
 
 ## 2. Autenticación para acceder al panel
 
-**Estado:** Pendiente
+**Estado:** Implementada (2026-07-06) — mecanismo elegido: **admin único**
 
 **Problema actual:** cualquier persona que conozca la URL `http://localhost:5000`
 (o la IP si el servidor se expone en red) tiene acceso completo al panel: puede ver
@@ -61,15 +61,44 @@ No hay ningún login.
 **Por qué importa:** es un sistema de RR.HH. con datos personales y biométricos;
 sin autenticación, no hay control de quién hace qué.
 
-**Propuesta:**
-- Agregar un login simple (usuario/contraseña de administrador) con sesión de Flask
-  (`flask-login` o sesión nativa firmada con `secret_key`).
-- Proteger las rutas de la API con un decorador `@login_required`.
-- Pantalla de login antes de mostrar el panel.
+**Cambios realizados:**
+- `.env` / `.env.example`: nuevas variables `LOGIN_USER`, `LOGIN_PASSWORD` y
+  `SECRET_KEY` (esta última firma la cookie de sesión; se generó una aleatoria
+  de 32 bytes con `secrets.token_hex(32)` para el `.env` local).
+- `app.py`:
+  - `app.secret_key = os.environ['SECRET_KEY']` y sesión nativa de Flask
+    (sin dependencias extra tipo `flask-login`, suficiente para un solo rol).
+  - `POST /api/login` — valida usuario/contraseña contra `.env` y marca
+    `session['autenticado'] = True`.
+  - `POST /api/logout` — limpia la sesión.
+  - `GET /api/session-check` — usado por el frontend al cargar la página.
+  - Decorador `login_required` aplicado a los 8 endpoints existentes de la
+    API (datos-iniciales, empleados, asistencia, novedades, biometría
+    enrolar/autenticar/verificar, baja). Sin sesión, responden `401`.
+- `index.html` / `script.js`:
+  - El panel (`#dashboard-main`) permanece oculto hasta confirmar sesión vía
+    `/api/session-check`.
+  - Nuevo overlay de login (reutiliza los estilos `.modal-bio-overlay` /
+    `.modal-bio-panel` ya existentes) que bloquea el acceso hasta iniciar sesión.
+  - Botón "Cerrar sesión" en la cabecera del panel.
+- La contraseña administrativa (`ADMIN_PASSWORD`) para dar de baja empleados
+  se mantiene sin cambios, como segunda confirmación sobre esa acción específica.
 
-**Riesgo de la migración:** medio. Es la mejora más grande — cambia el flujo de
-acceso a la app. Requiere decidir contigo el mecanismo (¿un solo usuario admin fijo?
-¿tabla de usuarios?) antes de tocar código.
+**Verificado en navegador (Chrome vía preview tools):**
+- Login con credenciales incorrectas → mensaje de error, panel sigue oculto.
+- Login con credenciales correctas → panel visible, datos reales cargados
+  (directorio de empleados desde MySQL).
+- Botón "Cerrar sesión" → vuelve a la pantalla de login.
+- `curl` directo a `/api/datos-iniciales` sin cookie de sesión → `401`,
+  confirmando que la protección es real a nivel de API y no solo un overlay
+  visual en el frontend.
+- Sin errores en consola del navegador durante todo el flujo.
+
+**Limitación conocida (fuera de alcance de esta mejora):** no se implementó
+protección CSRF ni HTTPS. Razonable para uso local/universitario; recomendado
+revisar si el sistema llegara a exponerse en una red compartida o internet.
+
+**Riesgo de la migración:** medio, ya implementado y probado.
 
 ---
 

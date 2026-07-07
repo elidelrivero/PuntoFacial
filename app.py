@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
 from dotenv import load_dotenv
 from dbutils.pooled_db import PooledDB
+from functools import wraps
 import pymysql
 import pymysql.cursors
 from datetime import datetime
@@ -16,7 +17,8 @@ load_dotenv()
 # Accede por http://localhost:5000 en lugar de abrir index.html como archivo.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path='')
-CORS(app)
+app.secret_key = os.environ['SECRET_KEY']
+CORS(app, supports_credentials=True)
 
 @app.route('/')
 def index():
@@ -32,6 +34,39 @@ db_config = {
 }
 
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
+LOGIN_USER     = os.environ['LOGIN_USER']
+LOGIN_PASSWORD = os.environ['LOGIN_PASSWORD']
+
+# ================================================================
+# AUTENTICACIÓN DEL PANEL
+# Sesión única de administrador (cookie firmada con SECRET_KEY).
+# Protege todos los endpoints de la API salvo login/session-check.
+# ================================================================
+
+def login_required(f):
+    @wraps(f)
+    def decorada(*args, **kwargs):
+        if not session.get('autenticado'):
+            return jsonify({'success': False, 'mensaje': 'Sesión no iniciada.'}), 401
+        return f(*args, **kwargs)
+    return decorada
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    datos = request.json or {}
+    if datos.get('usuario') == LOGIN_USER and datos.get('password') == LOGIN_PASSWORD:
+        session['autenticado'] = True
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'mensaje': 'Usuario o contraseña incorrectos.'}), 401
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    session.pop('autenticado', None)
+    return jsonify({'success': True})
+
+@app.route('/api/session-check', methods=['GET'])
+def session_check():
+    return jsonify({'autenticado': bool(session.get('autenticado'))})
 
 # Pool de conexiones: reutiliza hasta 5 conexiones en vez de abrir una nueva
 # por cada request. get_db_connection() y conn.close() se usan igual en todo
@@ -47,6 +82,7 @@ def get_db_connection():
 
 # --- ENDPOINT 1: Obtener el reporte de hoy y el directorio ---
 @app.route('/api/datos-iniciales', methods=['GET'])
+@login_required
 def obtener_datos():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -93,6 +129,7 @@ def obtener_datos():
 
 # --- ENDPOINT 2: Registrar un nuevo empleado ---
 @app.route('/api/empleados', methods=['POST'])
+@login_required
 def registrar_empleado():
     datos = request.json
     conn = get_db_connection()
@@ -123,6 +160,7 @@ def registrar_empleado():
 
 # --- ENDPOINT 3: Registrar Entrada / Salida ---
 @app.route('/api/asistencia', methods=['POST'])
+@login_required
 def registrar_asistencia():
     datos      = request.json
     codigo_emp = datos['id']
@@ -191,6 +229,7 @@ def registrar_asistencia():
 
 # --- ENDPOINT 4: Registrar Novedad ---
 @app.route('/api/novedades', methods=['POST'])
+@login_required
 def registrar_novedad():
     datos = request.json
     empleado_input = datos['empleado'] # Puede ser el ID (003) o el Nombre (Samuel)
@@ -241,6 +280,7 @@ def registrar_novedad():
 # ================================================================
 
 @app.route('/api/biometria/enrolar', methods=['POST'])
+@login_required
 def enrolar_biometria():
     datos = request.json
     codigo_empleado = datos.get('codigo_empleado')
@@ -289,6 +329,7 @@ def enrolar_biometria():
 
 
 @app.route('/api/biometria/autenticar', methods=['POST'])
+@login_required
 def autenticar_biometria():
     datos = request.json
 
@@ -350,6 +391,7 @@ def autenticar_biometria():
 
 # --- ENDPOINT: Baja de Empleado (requiere contraseña administrativa) ---
 @app.route('/api/empleados/baja', methods=['POST'])
+@login_required
 def dar_baja_empleado():
     datos           = request.json
     codigo_empleado = datos.get('codigo_empleado')
@@ -384,6 +426,7 @@ def dar_baja_empleado():
 
 
 @app.route('/api/biometria/verificar', methods=['POST'])
+@login_required
 def verificar_biometria():
     """
     Verificación 1:1 estricta.

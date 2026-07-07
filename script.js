@@ -1,5 +1,68 @@
 const API_URL = 'http://localhost:5000/api';
 
+// ── AUTENTICACIÓN DEL PANEL ──────────────────────────────────────
+// El panel completo (#dashboard-main) permanece oculto hasta confirmar
+// sesión activa. Todas las rutas /api/* (salvo login/session-check)
+// responden 401 sin sesión, así que se verifica antes de cargar datos.
+const dashboardEl  = document.getElementById('dashboard-main');
+const loginModalEl = document.getElementById('modal-login');
+const loginErrorEl = document.getElementById('login-error');
+
+function mostrarDashboard() {
+    loginModalEl.style.display = 'none';
+    dashboardEl.style.display  = 'flex';
+    cargarDatosBD();
+}
+
+function mostrarLogin() {
+    dashboardEl.style.display  = 'none';
+    loginModalEl.style.display = 'flex';
+}
+
+async function verificarSesion() {
+    try {
+        const res  = await fetch(`${API_URL}/session-check`);
+        const data = await res.json();
+        data.autenticado ? mostrarDashboard() : mostrarLogin();
+    } catch (err) {
+        mostrarLogin();
+    }
+}
+
+document.getElementById('form-login').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const usuario  = document.getElementById('login-usuario').value.trim();
+    const password = document.getElementById('login-password').value;
+    loginErrorEl.style.display = 'none';
+
+    try {
+        const res  = await fetch(`${API_URL}/login`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ usuario, password }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            this.reset();
+            mostrarDashboard();
+        } else {
+            loginErrorEl.textContent   = data.mensaje || 'Usuario o contraseña incorrectos.';
+            loginErrorEl.style.display = 'block';
+        }
+    } catch (err) {
+        loginErrorEl.textContent   = 'Error de conexión con el servidor.';
+        loginErrorEl.style.display = 'block';
+    }
+});
+
+async function cerrarSesion() {
+    await fetch(`${API_URL}/logout`, { method: 'POST' });
+    mostrarLogin();
+}
+
+verificarSesion();
+
 // ── NAVEGACIÓN DEL MENÚ ──────────────────────────────────────────
 const menuBtns = document.querySelectorAll('.menu-btn');
 const sections = document.querySelectorAll('.content-section');
@@ -80,7 +143,6 @@ async function cargarDatosBD() {
         console.error('Error cargando datos:', err);
     }
 }
-cargarDatosBD();
 
 // ── FLUJO 1: REGISTRO DE EMPLEADO + REDIRECCIÓN AL MODAL BIOMÉTRICO ──
 // Cuando el administrador guarda los datos base del empleado:

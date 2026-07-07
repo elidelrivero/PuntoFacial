@@ -114,6 +114,14 @@ ADMIN_PASSWORD=Abd6S
 # expone un debugger interactivo con ejecución de código si el servidor
 # queda accesible desde la red. Déjalo en False para cualquier otro caso.
 FLASK_DEBUG=True
+
+# Usuario y contraseña para entrar al panel
+LOGIN_USER=admin
+LOGIN_PASSWORD=Abd6S
+
+# Clave para firmar la sesión del navegador. Genera la tuya con:
+#   python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=pega-aqui-tu-clave-generada
 ```
 
 3. Guarda el archivo. El archivo `.env` es privado (no se sube al repositorio) — cada persona que instale el proyecto crea el suyo a partir de `.env.example`.
@@ -150,7 +158,7 @@ Abre tu navegador (Chrome o Firefox) y escribe en la barra de direcciones:
 http://localhost:5000
 ```
 
-Presiona Enter. Deberías ver el panel de control de TimeCheck.
+Presiona Enter. Verás una pantalla de inicio de sesión antes del panel.
 
 > **Importante:** Siempre accede por `http://localhost:5000`.  
 > No abras el archivo `index.html` directamente haciendo doble clic, porque la cámara y el reconocimiento facial **no funcionarán** de esa manera.
@@ -158,6 +166,10 @@ Presiona Enter. Deberías ver el panel de control de TimeCheck.
 ---
 
 ## Cómo usar el sistema
+
+### Iniciar sesión
+
+El panel está protegido con usuario y contraseña (definidos en tu `.env` como `LOGIN_USER` y `LOGIN_PASSWORD`, por defecto `admin` / `Abd6S`). Ingresa esos datos en la pantalla de login para acceder. Usa **"Cerrar sesión"** (arriba a la derecha) para salir.
 
 ### Registrar un nuevo empleado
 
@@ -245,6 +257,7 @@ Presiona Enter. Deberías ver el panel de control de TimeCheck.
 | Los modelos de IA no cargan | Falta la carpeta `models/` | Verifica que la carpeta `models/` exista dentro del proyecto |
 | La página no carga en `localhost:5000` | El servidor no está corriendo | Abre la terminal y ejecuta `python app.py` |
 | `python` no es reconocido como comando | Python no está en el PATH | Reinstala Python y marca la opción **"Add Python to PATH"** |
+| "Usuario o contraseña incorrectos" al iniciar sesión | Las credenciales no coinciden con `.env` | Revisa `LOGIN_USER` y `LOGIN_PASSWORD` en tu `.env` |
 
 ---
 
