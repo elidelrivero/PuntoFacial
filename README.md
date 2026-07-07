@@ -109,6 +109,11 @@ DB_PASSWORD=root      # <-- Cambia esto si tu contraseña de MySQL es otra
 DB_NAME=sistema_asistencia
 
 ADMIN_PASSWORD=Abd6S
+
+# True solo mientras desarrollas en tu propia máquina. Actívalo con cuidado:
+# expone un debugger interactivo con ejecución de código si el servidor
+# queda accesible desde la red. Déjalo en False para cualquier otro caso.
+FLASK_DEBUG=True
 ```
 
 3. Guarda el archivo. El archivo `.env` es privado (no se sube al repositorio) — cada persona que instale el proyecto crea el suyo a partir de `.env.example`.

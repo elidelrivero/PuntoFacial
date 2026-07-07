@@ -95,7 +95,7 @@ pico de entrada), abrir/cerrar conexión por request agrega latencia y no escala
 
 ## 4. Desactivar `debug=True` fuera de desarrollo
 
-**Estado:** Pendiente
+**Estado:** Implementada (2026-07-06)
 
 **Problema actual:** `app.run(debug=True, port=5000)` deja activado el modo debug
 de Flask, que expone un **debugger interactivo con ejecución remota de código** si
@@ -104,9 +104,18 @@ ocurre un error no manejado y el servidor es accesible desde la red.
 **Por qué importa:** si este servidor llega a exponerse fuera de `localhost` (ej. en
 la red de la oficina), el modo debug es una puerta de ejecución de código arbitraria.
 
-**Propuesta:**
-- Controlar `debug` mediante una variable de entorno (`FLASK_DEBUG`), por defecto
-  `False`, y solo `True` si se configura explícitamente para desarrollo local.
+**Cambios realizados:**
+- `app.py`: `app.run()` ahora lee `FLASK_DEBUG` de `.env` (`os.environ.get('FLASK_DEBUG', 'False')`)
+  y solo activa `debug=True` si el valor es exactamente `"true"` (sin distinguir
+  mayúsculas). Si la variable falta, el valor por defecto es `False`.
+- `.env` (local): `FLASK_DEBUG=True`, para no interrumpir el flujo de desarrollo actual.
+- `.env.example` (plantilla pública): `FLASK_DEBUG=False`, para que cualquiera
+  que clone el repo arranque seguro por defecto y deba activarlo a propósito.
+- README: documentado el nuevo valor en el paso 3d, con advertencia de para
+  qué sirve y por qué no debe activarse fuera de desarrollo.
+
+**Verificado:** `app.py` compila; se confirmó que `FLASK_DEBUG=True` en `.env`
+se interpreta correctamente como `True` al cargar con `python-dotenv`.
 
 **Riesgo de la migración:** muy bajo.
 

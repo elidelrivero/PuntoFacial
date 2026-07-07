@@ -435,4 +435,7 @@ def verificar_biometria():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Por defecto False: el debugger interactivo de Flask permite ejecución
+    # remota de código si queda activo fuera de una máquina de desarrollo.
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode, port=5000)
