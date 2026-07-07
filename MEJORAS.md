@@ -132,6 +132,42 @@ de que decidamos la estrategia de base de datos de prueba.
 
 ---
 
+---
+
+## 0. Repositorio de control de versiones
+
+**Estado:** Implementada (2026-07-06)
+
+**Qué se hizo:** el proyecto no tenía control de versiones propio (venía como
+descarga de un repo de terceros). Se creó un repositorio nuevo, público, en la
+cuenta de GitHub del propietario:
+
+- **Repositorio:** https://github.com/elidelrivero/PuntoFacial
+- **Visibilidad:** público (decisión del propietario, para exponerlo en su perfil)
+
+**Paso previo obligatorio — sanitización de datos:** antes de publicar, se
+detectó que `Dump20260622/restore_completo.sql` contenía **datos reales**:
+nombres de personas identificables y sus **vectores biométricos faciales
+reales** (columna `face_embedding`). Esto es información sensible que no debe
+publicarse.
+
+Se resolvió así:
+- Se guardó una copia del dump original con los datos reales en
+  `Dump20260622/restore_completo.local.sql` — **excluido del repositorio**
+  vía `.gitignore`, permanece solo en esta máquina.
+- El archivo `Dump20260622/restore_completo.sql` (el que sí se sube) fue
+  sanitizado: los nombres se reemplazaron por `Empleado Demo 1..12` y los
+  vectores biométricos reales por vectores sintéticos generados
+  aleatoriamente (mismo formato, 128 dimensiones, sin relación con rostros
+  reales).
+- Se verificó con `grep` que ningún nombre real quedara en el archivo antes
+  del commit.
+
+A partir de ahora, cada mejora aprobada se documentará aquí y se subirá como
+un commit independiente a este repositorio.
+
+---
+
 ## Orden sugerido de implementación
 
 1. Credenciales fuera del código (rápido, bajo riesgo, habilita el resto)
